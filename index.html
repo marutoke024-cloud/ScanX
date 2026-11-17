@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#060A12">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>ScanX</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* layout: full-bleed camera, one reticle, one dock. Result = text + one primary action. */
+  --bg:#060A12;
+  --panel:#0D1422;
+  --panel-2:#131C2E;
+  --line:#22304A;
+  --ink:#E9F2FB;
+  --mute:#8798B0;
+  --accent:#57E1FF;
+  --signal:#FFB04A;
+  --danger:#FF6B7A;
+  --display:"Chakra Petch","Noto Sans JP",system-ui,sans-serif;
+  --body:"Noto Sans JP",system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif;
+  --safe-t:env(safe-area-inset-top,0px);
+  --safe-b:env(safe-area-inset-bottom,0px);
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.7;overflow:hidden;overscroll-behavior:none}
+button,input,textarea{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[hidden]{display:none !important}
+
+.view{position:fixed;inset:0;display:none;flex-direction:column;background:var(--bg)}
+.view.on{display:flex}
+
+/* ---------- scan view ---------- */
+#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.topbar{position:absolute;left:0;right:0;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:calc(var(--safe-t) + 12px) 16px 10px}
+.mark{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.14em;line-height:1}
+.mark b{color:var(--accent);font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border:1px solid var(--line);border-radius:999px;background:rgba(13,20,34,.72);backdrop-filter:blur(8px);font-size:12px;color:var(--ink)}
+.chip i{width:7px;height:7px;border-radius:50%;background:var(--mute)}
+.chip.ready i{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.chip.busy i{background:var(--signal)}
+
+#reticle{position:absolute;z-index:2;left:14px;right:14px;top:calc(var(--safe-t) + 62px);bottom:calc(var(--safe-b) + 168px);border-radius:14px;box-shadow:0 0 0 100vmax rgba(6,10,18,.58);overflow:hidden;pointer-events:none}
+#reticle span{position:absolute;width:26px;height:26px;border:2px solid var(--accent);opacity:.95}
+#reticle span:nth-child(1){left:0;top:0;border-right:0;border-bottom:0;border-top-left-radius:14px}
+#reticle span:nth-child(2){right:0;top:0;border-left:0;border-bottom:0;border-top-right-radius:14px}
+#reticle span:nth-child(3){left:0;bottom:0;border-right:0;border-top:0;border-bottom-left-radius:14px}
+#reticle span:nth-child(4){right:0;bottom:0;border-left:0;border-top:0;border-bottom-right-radius:14px}
+#beam{position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,transparent,var(--signal),transparent);box-shadow:0 0 14px 2px rgba(255,176,74,.55);opacity:0}
+.scanning #beam{opacity:1;animation:beam 2.2s ease-in-out infinite alternate}
+.scanning #reticle span{border-color:var(--signal)}
+@keyframes beam{from{top:2%}to{top:98%}}
+@media (prefers-reduced-motion:reduce){.scanning #beam{animation:none;top:50%}}
+
+.dock{position:absolute;z-index:3;left:0;right:0;bottom:0;padding:10px 16px calc(var(--safe-b) + 14px);display:flex;flex-direction:column;align-items:center;gap:10px}
+#status{min-height:22px;font-size:12.5px;color:var(--mute);text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+#status strong{color:var(--ink);font-weight:500}
+.scanning #status strong{color:var(--signal)}
+#progress{width:min(260px,70%);height:3px;border-radius:3px;background:var(--line);overflow:hidden}
+#progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s}
+.controls{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;width:100%;max-width:420px}
+.side{display:flex;flex-direction:column;align-items:center;gap:3px;justify-self:center;min-width:64px;padding:6px 4px;font-size:11px;color:var(--mute)}
+.side svg{width:24px;height:24px;stroke:var(--ink);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+#shutter{position:relative;width:78px;height:78px;border-radius:50%;border:2px solid var(--accent);background:rgba(13,20,34,.6);backdrop-filter:blur(6px);display:grid;place-items:center;transition:border-color .2s}
+#shutter::before{content:"";width:58px;height:58px;border-radius:50%;background:var(--accent);transition:all .2s}
+#shutter span{position:absolute;font-family:var(--display);font-weight:600;font-size:12px;letter-spacing:.12em;color:#04121A}
+.scanning #shutter{border-color:var(--signal)}
+.scanning #shutter::before{width:28px;height:28px;border-radius:7px;background:var(--signal)}
+.scanning #shutter span{display:none}
+#shutter:disabled{opacity:.45}
+
+#cammsg{position:absolute;z-index:2;inset:0;display:grid;place-items:center;padding:24px;text-align:center}
+#cammsg div{max-width:300px;padding:20px;border:1px solid var(--line);border-radius:14px;background:rgba(13,20,34,.9)}
+#cammsg p{margin:0 0 14px;font-size:14px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);font-size:14px;font-weight:500}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#04121A;font-weight:700}
+.btn.danger{color:var(--danger)}
+
+@media (orientation:landscape) and (max-height:560px){
+  #reticle{top:calc(var(--safe-t) + 12px);bottom:calc(var(--safe-b) + 12px);left:14px;right:132px}
+  .topbar{right:132px;padding-top:calc(var(--safe-t) + 20px);padding-left:30px;pointer-events:none}
+  .topbar .chip{display:none}
+  .dock{left:auto;top:0;width:124px;padding:12px 8px;justify-content:center}
+  .controls{grid-template-columns:1fr;gap:10px;justify-items:center}
+  #shutter{grid-row:2}
+  #progress{width:90px}
+}
+
+/* ---------- result + library ---------- */
+.head{display:flex;align-items:center;gap:10px;padding:calc(var(--safe-t) + 10px) 12px 10px;border-bottom:1px solid var(--line)}
+.back{width:44px;height:44px;display:grid;place-items:center;border-radius:12px}
+.back svg{width:22px;height:22px;stroke:var(--ink);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.head h1{flex:1;min-width:0;margin:0;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.head small{display:block;font-size:11.5px;font-weight:400;color:var(--mute);font-variant-numeric:tabular-nums}
+.scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px}
+#formatted{max-width:70ch;margin:0 auto;font-size:15px;user-select:text;-webkit-user-select:text}
+#formatted .t{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 12px}
+.tw{overflow-x:auto;margin:0 0 14px;border:1px solid var(--line);border-radius:10px}
+.tw table{border-collapse:collapse;min-width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+.tw th,.tw td{padding:7px 10px;border:1px solid var(--line);text-align:left;vertical-align:top;white-space:pre-wrap}
+.tw tr:first-child th{border-top:0}.tw tr:last-child td{border-bottom:0}
+.tw th:first-child,.tw td:first-child{border-left:0}.tw th:last-child,.tw td:last-child{border-right:0}
+.tw th{background:var(--panel-2);font-weight:700;color:var(--accent)}
+#editor{display:block;width:100%;height:100%;min-height:240px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);font-size:14.5px;line-height:1.7;resize:none}
+.foot{display:flex;gap:10px;padding:12px 16px calc(var(--safe-b) + 14px);border-top:1px solid var(--line);background:var(--panel)}
+.foot .primary{flex:1;min-height:54px;font-size:16px;border-radius:14px}
+.foot .btn:not(.primary){min-height:54px;padding:0 14px;border-radius:14px}
+
+#list{display:flex;flex-direction:column;gap:10px;max-width:640px;margin:0 auto}
+.item{display:block;width:100%;text-align:left;padding:13px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.item b{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item small{color:var(--mute);font-size:12px;font-variant-numeric:tabular-nums}
+.empty{margin:48px auto;max-width:280px;text-align:center;color:var(--mute);font-size:14px}
+
+/* ---------- settings sheet ---------- */
+#sheet{position:fixed;inset:0;z-index:20;display:none;align-items:flex-end;justify-content:center;background:rgba(3,6,12,.6)}
+#sheet.on{display:flex}
+.sheet{width:100%;max-width:520px;max-height:92%;overflow-y:auto;padding:18px 18px calc(var(--safe-b) + 18px);border:1px solid var(--line);border-bottom:0;border-radius:18px 18px 0 0;background:var(--panel);display:flex;flex-direction:column;gap:14px}
+.sheet h2{margin:0;font-family:var(--display);font-weight:600;font-size:15px;letter-spacing:.1em}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.seg button{min-height:42px;border-radius:9px;font-size:13.5px;color:var(--mute)}
+.seg button[aria-pressed="true"]{background:var(--panel-2);color:var(--accent);font-weight:700;box-shadow:inset 0 0 0 1px var(--line)}
+.field{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--mute)}
+.field input{height:44px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-size:14px;color:var(--ink)}
+.note{margin:0;font-size:12.5px;color:var(--mute);line-height:1.65}
+
+#toast{position:fixed;z-index:30;left:50%;bottom:calc(var(--safe-b) + 120px);transform:translateX(-50%);max-width:min(88%,420px);padding:10px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);font-size:13.5px;text-align:center;opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.on{opacity:1}
+</style>
+</head>
+<body>
+
+<!-- ============ SCAN ============ -->
+<section class="view on" id="v-scan" aria-label="スキャン">
+  <video id="video" playsinline muted autoplay></video>
+  <div id="reticle" aria-hidden="true"><span></span><span></span><span></span><span></span><div id="beam"></div></div>
+
+  <header class="topbar">
+    <div class="mark">SCAN<b>X</b></div>
+    <button class="chip" id="chip" type="button" aria-label="読み取り方式の設定"><i></i><span id="chipText">端末内OCR</span></button>
+  </header>
+
+  <div id="cammsg" hidden><div><p id="cammsgText"></p><button class="btn primary" id="camRetry" type="button">カメラを起動</button></div></div>
+
+  <footer class="dock">
+    <div id="status">枠内に文書を映して、スキャンを開始します</div>
+    <div id="progress" hidden><i></i></div>
+    <div class="controls">
+      <button class="side" id="toLibrary" type="button">
+        <svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M9 10h6M9 14h6"/></svg>保存一覧
+      </button>
+      <button id="shutter" type="button" aria-label="スキャン開始"><span>SCAN</span></button>
+      <button class="side" id="toSettings" type="button">
+        <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>設定
+      </button>
+    </div>
+  </footer>
+</section>
+
+<!-- ============ RESULT ============ -->
+<section class="view" id="v-result" aria-label="抽出結果">
+  <header class="head">
+    <button class="back" id="resBack" type="button" aria-label="戻る"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <h1><span id="resTitle"></span><small id="resMeta"></small></h1>
+  </header>
+  <div class="scroll" id="resScroll">
+    <div id="formatted"></div>
+    <textarea id="editor" hidden spellcheck="false" aria-label="抽出テキストの編集"></textarea>
+  </div>
+  <footer class="foot">
+    <button class="btn" id="editBtn" type="button">編集</button>
+    <button class="btn primary" id="copyBtn" type="button">全文をコピー</button>
+    <button class="btn danger" id="delBtn" type="button">削除</button>
+  </footer>
+</section>
+
+<!-- ============ LIBRARY ============ -->
+<section class="view" id="v-library" aria-label="保存一覧">
+  <header class="head">
+    <button class="back" id="libBack" type="button" aria-label="戻る"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <h1>保存一覧<small id="libMeta"></small></h1>
+  </header>
+  <div class="scroll"><div id="list"></div></div>
+</section>
+
+<!-- ============ SETTINGS ============ -->
+<div id="sheet" role="dialog" aria-modal="true" aria-label="設定">
+  <div class="sheet">
+    <h2>READ MODE</h2>
+    <div class="seg" role="group" aria-label="読み取り方式">
+      <button type="button" data-engine="device">端末内OCR</button>
+      <button type="button" data-engine="api">高精度（API）</button>
+    </div>
+    <p class="note" id="engineNote"></p>
+    <div id="apiFields" hidden>
+      <label class="field" for="apiKey">Anthropic APIキー
+        <input id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-...">
+      </label>
+      <label class="field" for="apiModel" style="margin-top:10px">モデル名
+        <input id="apiModel" type="text" autocomplete="off" spellcheck="false">
+      </label>
+    </div>
+    <button class="btn primary" id="sheetClose" type="button">閉じる</button>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" async></script>
+<script>
+"use strict";
+/*PURE-START*/
+// ---------- text helpers (pure) ----------
+function isCJK(ch){
+  if(!ch) return false;
+  const c = ch.codePointAt(0);
+  return (c>=0x3000&&c<=0x30FF)||(c>=0x3400&&c<=0x9FFF)||(c>=0xF900&&c<=0xFAFF)||(c>=0xFF00&&c<=0xFFEF)||(c>=0x20000&&c<=0x2FFFF);
+}
+function norm(s){ return (s||"").replace(/[\s　|]+/g,"").toLowerCase(); }
+function lev(a,b){
+  const n=a.length,m=b.length; if(!n) return m; if(!m) return n;
+  let prev=new Array(m+1), cur=new Array(m+1);
+  for(let j=0;j<=m;j++) prev[j]=j;
+  for(let i=1;i<=n;i++){
+    cur[0]=i; const ca=a.charCodeAt(i-1);
+    for(let j=1;j<=m;j++){
+      const cost = ca===b.charCodeAt(j-1)?0:1;
+      cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+cost);
+    }
+    const t=prev; prev=cur; cur=t;
+  }
+  return prev[m];
+}
+function sim(a,b){
+  if(a===b) return 1;
+  const L=Math.max(a.length,b.length); if(!L) return 0;
+  if(Math.min(a.length,b.length)/L<0.5) return 0;
+  return 1-lev(a,b)/L;
+}
+// Merge the lines of a new frame into the accumulated lines, removing the overlap.
+function stitch(acc, neu){
+  if(!neu.length) return acc;
+  if(!acc.length) return neu.slice();
+  const T=Math.min(acc.length,90), base=acc.length-T, N=neu.length;
+  const S=[];
+  for(let i=0;i<T;i++){ const row=new Float32Array(N); for(let j=0;j<N;j++) row[j]=sim(acc[base+i].key,neu[j].key); S.push(row); }
+  let best=null;
+  for(let o=-(N-1);o<T;o++){
+    let m=0,cnt=0,s=0,longest=0;
+    for(let j=0;j<N;j++){
+      const i=o+j; if(i<0||i>=T) continue;
+      cnt++; const v=S[i][j];
+      if(v>=0.72){ m++; s+=v; longest=Math.max(longest,neu[j].key.length); }
+    }
+    if(!cnt) continue;
+    const ok = (m>=2 && m/cnt>=0.5) || (m===1 && cnt<=2 && s>=0.9 && longest>=6);
+    if(ok && (!best || s>best.s || (s===best.s && o>best.o))) best={o,s};
+  }
+  const out=acc.slice();
+  if(!best){
+    neu.forEach((l,j)=>out.push(j===0?Object.assign({},l,{gapBefore:true}):l));
+    return out;
+  }
+  for(let j=0;j<N;j++){
+    const i=best.o+j;
+    if(i<0) continue;
+    if(i<T){
+      if(S[i][j]>=0.72 && neu[j].conf>out[base+i].conf){
+        out[base+i]=Object.assign({},neu[j],{gapBefore:out[base+i].gapBefore||neu[j].gapBefore});
+      }
+    } else out.push(neu[j]);
+  }
+  return out;
+}
+function cellText(s){ return s.replace(/\|/g,"｜").trim(); }
+function linesToText(lines){
+  const out=[]; let i=0;
+  while(i<lines.length){
+    const L=lines[i];
+    if(L.cells.length>=2){
+      let j=i; while(j<lines.length && lines[j].cells.length===L.cells.length) j++;
+      if(j-i>=2){
+        if(out.length && out[out.length-1]!=="") out.push("");
+        out.push("| "+L.cells.map(cellText).join(" | ")+" |");
+        out.push("|"+L.cells.map(()=>" --- ").join("|")+"|");
+        for(let k=i+1;k<j;k++) out.push("| "+lines[k].cells.map(cellText).join(" | ")+" |");
+        out.push(""); i=j; continue;
+      }
+    }
+    if(L.gapBefore && out.length && out[out.length-1]!=="") out.push("");
+    out.push(L.cells.filter(Boolean).join("  ")); i++;
+  }
+  return out.join("\n").replace(/\n{3,}/g,"\n\n").trim();
+}
+function parseBlocks(text){
+  const lines=(text||"").split("\n"), blocks=[]; let i=0, buf=[];
+  const isRow=s=>/^\s*\|.*\|\s*$/.test(s);
+  const isSep=s=>/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(s);
+  const split=s=>s.trim().replace(/^\|/,"").replace(/\|$/,"").split("|").map(c=>c.trim());
+  const flush=()=>{ const t=buf.join("\n").replace(/^\n+|\n+$/g,""); if(t) blocks.push({type:"text",text:t}); buf=[]; };
+  while(i<lines.length){
+    if(isRow(lines[i]) && i+1<lines.length && isSep(lines[i+1])){
+      flush();
+      const rows=[split(lines[i])]; i+=2;
+      while(i<lines.length && isRow(lines[i])){ rows.push(split(lines[i])); i++; }
+      blocks.push({type:"table",rows});
+    } else { buf.push(lines[i]); i++; }
+  }
+  flush();
+  return blocks;
+}
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function blocksToPlain(blocks){
+  return blocks.map(b=>b.type==="table"?b.rows.map(r=>r.join("\t")).join("\n"):b.text).join("\n\n");
+}
+function blocksToHtml(blocks){
+  return blocks.map(b=>{
+    if(b.type==="table"){
+      const cols=Math.max(...b.rows.map(r=>r.length));
+      return '<table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse">'+b.rows.map((r,ri)=>"<tr>"+Array.from({length:cols},(_,ci)=>{
+        const tag=ri===0?"th":"td"; return "<"+tag+">"+esc(r[ci]||"")+"</"+tag+">";
+      }).join("")+"</tr>").join("")+"</table>";
+    }
+    return b.text.split(/\n{2,}/).map(p=>"<p>"+esc(p).replace(/\n/g,"<br>")+"</p>").join("");
+  }).join("");
+}
+// Grayscale + contrast stretch (and invert dark screens) in place on RGBA data. Returns the gray plane.
+function toGray(d,n){
+  const g=new Uint8Array(n), hist=new Uint32Array(256);
+  for(let i=0,p=0;i<n;i++,p+=4){ const v=(d[p]*77+d[p+1]*150+d[p+2]*29)>>8; g[i]=v; hist[v]++; }
+  const pct=q=>{ let a=0; for(let v=0;v<256;v++){ a+=hist[v]; if(a>=n*q) return v; } return 255; };
+  const lo=pct(0.01), hi=pct(0.99), inv=pct(0.5)<110, range=Math.max(1,hi-lo), lut=new Uint8Array(256);
+  for(let v=0;v<256;v++){ const t=Math.max(0,Math.min(255,Math.round((v-lo)*255/range))); lut[v]=inv?255-t:t; }
+  for(let i=0;i<n;i++) g[i]=lut[g[i]];
+  return g;
+}
+// Erase table ruling lines (they wreck recognition) and return the vertical ones as column separators.
+function removeGrid(g,W,H){
+  const mh=new Uint8Array(W*H), mv=new Uint8Array(W*H), TH=150;
+  const minH=Math.max(60,Math.round(W*0.08)), minV=Math.max(40,Math.round(H*0.08));
+  const maxT=Math.max(8,Math.round(Math.min(W,H)*0.008));
+  for(let y=0;y<H;y++){ const o=y*W; let run=0;
+    for(let x=0;x<=W;x++){
+      if(x<W && g[o+x]<TH) run++;
+      else { if(run>=minH) mh.fill(1,o+x-run,o+x); run=0; }
+    }
+  }
+  for(let x=0;x<W;x++){ let run=0;
+    for(let y=0;y<=H;y++){
+      if(y<H && g[y*W+x]<TH) run++;
+      else { if(run>=minV) for(let k=y-run;k<y;k++) mv[k*W+x]=1; run=0; }
+    }
+  }
+  // a "line" thicker than maxT is a filled area (e.g. a shaded header), keep it
+  for(let x=0;x<W;x++){ let run=0;
+    for(let y=0;y<=H;y++){
+      if(y<H && mh[y*W+x]) run++;
+      else { if(run>maxT) for(let k=y-run;k<y;k++) mh[k*W+x]=0; run=0; }
+    }
+  }
+  const raw=[];
+  for(let y=0;y<H;y++){ const o=y*W; let run=0;
+    for(let x=0;x<=W;x++){
+      if(x<W && mv[o+x]) run++;
+      else { if(run>maxT) mv.fill(0,o+x-run,o+x); run=0; }
+    }
+  }
+  for(let x=0;x<W;x++){ let run=0;
+    for(let y=0;y<=H;y++){
+      if(y<H && mv[y*W+x]) run++;
+      else { if(run) raw.push({x,y0:y-run,y1:y}); run=0; }
+    }
+  }
+  for(let y=0;y<H;y++){ const o=y*W;
+    for(let x=0;x<W;x++){
+      if(mh[o+x]) for(let k=Math.max(0,y-2);k<=Math.min(H-1,y+2);k++) g[k*W+x]=255;
+      if(mv[o+x]) g.fill(255,o+Math.max(0,x-2),o+Math.min(W-1,x+2)+1);
+    }
+  }
+  const seps=[];
+  for(const r of raw){
+    const s=seps.find(q=>Math.abs(q.x1-r.x)<=4 && r.y0<=q.y1+6 && r.y1>=q.y0-6);
+    if(s){ s.x1=Math.max(s.x1,r.x); s.y0=Math.min(s.y0,r.y0); s.y1=Math.max(s.y1,r.y1); }
+    else seps.push({x0:r.x,x1:r.x,y0:r.y0,y1:r.y1});
+  }
+  return seps.map(q=>({x:(q.x0+q.x1)/2,y0:q.y0,y1:q.y1}));
+}
+// Turn one Tesseract page result into line records.
+function extractLines(data,W,H,seps){
+  const out=[]; let prev=null;
+  for(const ln of (data.lines||[])){
+    const b=ln.bbox; if(!b) continue;
+    const h=b.y1-b.y0, cy=(b.y0+b.y1)/2;
+    if(b.y0<H*0.012 || b.y1>H*0.988) continue;           // cut off at the frame edge
+    const words=(ln.words||[]).filter(w=>w.text && w.text.trim() && w.confidence>=30 && !/^[|｜_\[\]]+$/.test(w.text.trim()));
+    if(!words.length) continue;
+    const conf=words.reduce((a,w)=>a+w.confidence,0)/words.length;
+    if(conf<60) continue;
+    const xs=(seps||[]).filter(q=>q.y0<=cy && q.y1>=cy).map(q=>q.x).sort((a,b)=>a-b);
+    let cells=[], cur="", last=null, lastCol=-1;
+    const join=t=>{ if(cur && !isCJK(cur.slice(-1)) && !isCJK(t[0])) cur+=" "; cur+=t; };
+    if(xs.length){
+      const seg=new Array(xs.length+1).fill("");
+      for(const w of words){
+        const cx=(w.bbox.x0+w.bbox.x1)/2; let c=0; while(c<xs.length && xs[c]<cx) c++;
+        cur=seg[c]; join(w.text.trim()); seg[c]=cur;
+      }
+      cells=seg.slice();
+      if(cells.length>1 && !cells[cells.length-1]) cells.pop();
+      if(cells.length>1 && !cells[0]) cells.shift();
+    } else {
+      for(const w of words){
+        const t=w.text.trim();
+        if(last && w.bbox.x0-last.bbox.x1>h*2.2){ cells.push(cur); cur=""; }
+        join(t); last=w;
+      }
+      cells.push(cur);
+    }
+    const key=norm(cells.join(""));
+    if(!key || (key.length<2 && conf<80)) continue;
+    out.push({cells,conf,key,gapBefore:prev?(b.y0-prev.y1)>Math.min(h,prev.h)*0.9:false});
+    prev={y1:b.y1,h};
+  }
+  return out;
+}
+/*PURE-END*/
+
+// ---------- state ----------
+const $=s=>document.querySelector(s);
+const store={
+  get(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v); }catch(e){ return d; } },
+  set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); return true; }catch(e){ return false; } }
+};
+const settings=Object.assign({engine:"device",apiKey:"",model:"claude-sonnet-5-5"},store.get("scanx.settings",{}));
+let docs=store.get("scanx.docs",[]);
+let current=null;
+const video=$("#video"), reticle=$("#reticle"), vScan=$("#v-scan");
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+let toastTimer=0;
+function toast(msg,ms){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove("on"),ms||3200); }
+function saveSettings(){ store.set("scanx.settings",settings); }
+function saveDocs(){ if(!store.set("scanx.docs",docs)) toast("保存容量が不足しています。古いスキャンを削除してください。"); }
+
+// ---------- camera (video stream only: no audio track, no shutter sound) ----------
+let stream=null;
+async function startCamera(){
+  if(stream) return;
+  $("#cammsg").hidden=true;
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ camError("このブラウザではカメラを使えません。HTTPSで開いているか確認してください。"); return; }
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:"environment"},width:{ideal:3840},height:{ideal:2160}}});
+    video.srcObject=stream;
+    await video.play().catch(()=>{});
+    const track=stream.getVideoTracks()[0];
+    try{
+      const caps=track.getCapabilities?track.getCapabilities():{};
+      if(caps.focusMode && caps.focusMode.includes("continuous")) await track.applyConstraints({advanced:[{focusMode:"continuous"}]});
+    }catch(e){}
+  }catch(e){
+    stream=null;
+    camError(e && e.name==="NotAllowedError"?"カメラの使用が許可されていません。ブラウザのサイト設定でカメラを許可してください。":"カメラを起動できませんでした。ほかのアプリがカメラを使っていないか確認してください。");
+  }
+}
+function stopCamera(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; video.srcObject=null; } }
+function camError(msg){ $("#cammsgText").textContent=msg; $("#cammsg").hidden=false; }
+
+function cropRect(){
+  const vw=video.videoWidth, vh=video.videoHeight; if(!vw||!vh) return null;
+  const vr=video.getBoundingClientRect(), rr=reticle.getBoundingClientRect();
+  const scale=Math.max(vr.width/vw,vr.height/vh);
+  const ox=(vr.width-vw*scale)/2, oy=(vr.height-vh*scale)/2;
+  let x=(rr.left-vr.left-ox)/scale, y=(rr.top-vr.top-oy)/scale, w=rr.width/scale, h=rr.height/scale;
+  x=Math.max(0,x); y=Math.max(0,y); w=Math.min(vw-x,w); h=Math.min(vh-y,h);
+  if(w<16||h<16) return null;
+  return {x,y,w,h};
+}
+
+// ---------- frame selection ----------
+const tcv=document.createElement("canvas"); tcv.width=64; tcv.height=64;
+const tcx=tcv.getContext("2d",{willReadFrequently:true});
+const pcv=document.createElement("canvas"); pcv.width=256; pcv.height=256;
+const pcx=pcv.getContext("2d",{willReadFrequently:true});
+function thumbGray(c){
+  tcx.drawImage(video,c.x,c.y,c.w,c.h,0,0,64,64);
+  const d=tcx.getImageData(0,0,64,64).data, g=new Float32Array(4096);
+  for(let i=0,p=0;i<4096;i++,p+=4) g[i]=d[p]*0.299+d[p+1]*0.587+d[p+2]*0.114;
+  return g;
+}
+function thumbDiff(a,b){ let s=0; for(let i=0;i<a.length;i++) s+=Math.abs(a[i]-b[i]); return s/a.length; }
+function patchSharp(c){
+  const sz=Math.min(256,c.w,c.h);
+  pcx.drawImage(video,c.x+(c.w-sz)/2,c.y+(c.h-sz)/2,sz,sz,0,0,256,256);
+  const d=pcx.getImageData(0,0,256,256).data, g=new Float32Array(65536);
+  for(let i=0,p=0;i<65536;i++,p+=4) g[i]=d[p]*0.299+d[p+1]*0.587+d[p+2]*0.114;
+  let s=0,s2=0,n=0;
+  for(let y=1;y<255;y++) for(let x=1;x<255;x++){
+    const i=y*256+x, l=4*g[i]-g[i-1]-g[i+1]-g[i-256]-g[i+256];
+    s+=l; s2+=l*l; n++;
+  }
+  return s2/n-(s/n)*(s/n);
+}
+
+// ---------- scan session ----------
+let scan=null, tickTimer=0, clockTimer=0, wakeLock=null;
+const LIMIT={device:120,api:45};
+
+async function startScan(){
+  if(scan) return;
+  if(!stream || !cropRect()){ toast("カメラの準備ができていません。"); return; }
+  if(settings.engine==="api" && !settings.apiKey){ toast("高精度モードにはAPIキーが必要です。"); openSheet(); return; }
+  scan={engine:settings.engine,active:true,frames:0,done:0,queue:[],lines:[],text:"",pumping:false,error:null,lastThumb:null,lastAt:0,sharpEma:0,t0:Date.now()};
+  vScan.classList.add("scanning");
+  $("#shutter").setAttribute("aria-label","スキャン終了");
+  try{ if(navigator.wakeLock) wakeLock=await navigator.wakeLock.request("screen"); }catch(e){}
+  if(scan.engine==="device") getWorker().catch(()=>{});
+  tickTimer=setInterval(tick,300); clockTimer=setInterval(hud,500);
+  tick(); hud();
+}
+function tick(){
+  if(!scan || !scan.active) return;
+  const c=cropRect(); if(!c) return;
+  const now=performance.now(), g=thumbGray(c), sharp=patchSharp(c);
+  scan.sharpEma=scan.sharpEma?scan.sharpEma*0.8+sharp*0.2:sharp;
+  const first=!scan.lastThumb;
+  const gap=scan.engine==="api"?1400:650;
+  if(first || (now-scan.lastAt>=gap && thumbDiff(g,scan.lastThumb)>7 && sharp>=scan.sharpEma*0.55)){
+    keepFrame(c); scan.lastThumb=g; scan.lastAt=now;
+    if(scan.frames>=LIMIT[scan.engine]){ toast("フレーム数の上限に達したため、スキャンを終了します。"); stopScan(); }
+  }
+}
+function keepFrame(c){
+  const maxLong=scan.engine==="api"?2000:2400;
+  const s=Math.min(1,maxLong/Math.max(c.w,c.h));
+  const cv=document.createElement("canvas"); cv.width=Math.round(c.w*s); cv.height=Math.round(c.h*s);
+  cv.getContext("2d").drawImage(video,c.x,c.y,c.w,c.h,0,0,cv.width,cv.height);
+  scan.frames++;
+  scan.queue.push(new Promise(res=>cv.toBlob(b=>res(b),"image/jpeg",0.9)));
+  pump();
+}
+async function pump(){
+  if(!scan || scan.pumping) return;
+  const s=scan; s.pumping=true;
+  try{
+    while(s.queue.length){
+      if(s.engine==="api"){
+        if(s.queue.length<3 && s.active) break;
+        const batch=(await Promise.all(s.queue.splice(0,3))).filter(Boolean);
+        if(batch.length) await apiBatch(s,batch);
+        s.done+=batch.length;
+      } else {
+        const blob=await s.queue.shift();
+        if(blob) await deviceFrame(s,blob);
+        s.done++;
+      }
+      hud();
+    }
+  }catch(e){ s.error=e; s.queue.length=0; }
+  finally{ s.pumping=false; }
+}
+async function stopScan(){
+  if(!scan || !scan.active) return;
+  const s=scan; s.active=false;
+  clearInterval(tickTimer); clearInterval(clockTimer);
+  const c=cropRect();
+  if(c && s.lastThumb && thumbDiff(thumbGray(c),s.lastThumb)>3) keepFrame(c);
+  vScan.classList.remove("scanning");
+  $("#shutter").disabled=true; $("#shutter").setAttribute("aria-label","スキャン開始");
+  $("#progress").hidden=false; hud();
+  try{ if(wakeLock){ await wakeLock.release(); wakeLock=null; } }catch(e){}
+  while(s.queue.length || s.pumping){ if(!s.pumping) await pump(); else await sleep(80); hud(); }
+  const text=(s.engine==="api"?s.text:linesToText(s.lines)).trim();
+  scan=null;
+  $("#shutter").disabled=false; $("#progress").hidden=true;
+  $("#status").textContent="枠内に文書を映して、スキャンを開始します";
+  if(s.error) toast((text?"途中で読み取りが止まりました：":"読み取れませんでした：")+(s.error.message||s.error),6000);
+  if(!text){ if(!s.error) toast("文字を検出できませんでした。ピントと明るさを確認してください。"); return; }
+  const doc={id:Date.now().toString(36),at:Date.now(),text,engine:s.engine,frames:s.frames};
+  docs.unshift(doc); saveDocs(); openDoc(doc.id);
+}
+function hud(){
+  if(!scan) return;
+  const st=$("#status");
+  if(scan.active){
+    const sec=Math.floor((Date.now()-scan.t0)/1000), mm=String(Math.floor(sec/60)).padStart(2,"0"), ss=String(sec%60).padStart(2,"0");
+    st.innerHTML="<strong>スキャン中 "+mm+":"+ss+"</strong>　フレーム "+scan.frames+"　解析済み "+scan.done;
+  } else {
+    st.innerHTML="<strong>解析中</strong>　"+scan.done+" / "+scan.frames;
+    $("#progress i").style.width=(scan.frames?Math.round(scan.done/scan.frames*100):0)+"%";
+  }
+}
+
+// ---------- engine 1: on-device OCR (Tesseract, jpn+eng) ----------
+let workerP=null;
+function getWorker(){
+  if(!workerP){
+    setChip("busy","OCR準備中");
+    workerP=(async()=>{
+      for(let i=0;i<50 && !window.Tesseract;i++) await sleep(200);
+      if(!window.Tesseract) throw new Error("OCRエンジンを読み込めませんでした。通信環境を確認してください。");
+      const w=await Tesseract.createWorker(["jpn","eng"],1);
+      await w.setParameters({tessedit_pageseg_mode:"6",preserve_interword_spaces:"1"});
+      return w;
+    })();
+    workerP.then(()=>refreshChip(),()=>{ workerP=null; refreshChip(); });
+  }
+  return workerP;
+}
+function preprocess(bmp){
+  const cv=document.createElement("canvas"); cv.width=bmp.width; cv.height=bmp.height;
+  const cx=cv.getContext("2d",{willReadFrequently:true}); cx.drawImage(bmp,0,0);
+  const im=cx.getImageData(0,0,cv.width,cv.height), d=im.data, n=d.length/4;
+  const g=toGray(d,n), seps=removeGrid(g,cv.width,cv.height);
+  for(let i=0,p=0;i<n;i++,p+=4){ d[p]=d[p+1]=d[p+2]=g[i]; d[p+3]=255; }
+  cx.putImageData(im,0,0);
+  return {cv,seps};
+}
+async function deviceFrame(s,blob){
+  const w=await getWorker();
+  const bmp=await createImageBitmap(blob);
+  const {cv,seps}=preprocess(bmp); if(bmp.close) bmp.close();
+  const r=await w.recognize(cv);
+  s.lines=stitch(s.lines,extractLines(r.data,cv.width,cv.height,seps));
+}
+
+// ---------- engine 2: high accuracy (Anthropic API, key stays on this device) ----------
+const PROMPT=[
+"これらは、別の端末の画面に表示された文書を、スクロールしながら順番に撮影した連続フレームです。写っている文書の文字を正確に書き起こしてください。",
+"ルール:",
+"- 文書の本文だけを書き起こす。アプリのメニュー、ツールバー、タスクバー、画面の外に写った物は無視する。",
+"- 一字一句そのまま書き起こす。要約、補完、翻訳、言い換え、誤字の修正をしない。言語は日本語と英語が中心。",
+"- フレーム同士で重複している行は1回だけ出力する。",
+"- 「抽出済みの末尾」がある場合は、その続きにあたる新しい部分だけを出力する。抽出済みの内容を繰り返さない。",
+"- 表はMarkdownの表（| 区切り、2行目に |---| ）で、行と列の構造をそのまま再現する。セル内の改行は空白にする。",
+"- 段落の区切りは保つ。画面幅による折り返しは1行につなげる。",
+"- 判読できない文字は推測せず「■」にする。",
+"- 図、写真、アイコンは無視する。",
+"- 出力は書き起こしたテキストだけ。前置き、説明、コードブロックの囲みを付けない。新しい内容が何もなければ [NONE] とだけ出力する。"
+].join("\n");
+function blobToB64(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=()=>rej(new Error("画像を読み込めませんでした")); r.readAsDataURL(blob); }); }
+async function apiBatch(s,blobs){
+  const imgs=await Promise.all(blobs.map(blobToB64));
+  const tail=s.text.slice(-800);
+  const content=imgs.map(d=>({type:"image",source:{type:"base64",media_type:"image/jpeg",data:d}}));
+  content.push({type:"text",text:PROMPT+(tail?"\n\n<抽出済みの末尾>\n"+tail+"\n</抽出済みの末尾>":"")});
+  let res;
+  try{
+    res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{
+      "content-type":"application/json","x-api-key":settings.apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"
+    },body:JSON.stringify({model:settings.model||"claude-sonnet-5-5",max_tokens:8000,messages:[{role:"user",content}]})});
+  }catch(e){ throw new Error("APIに接続できませんでした。通信環境を確認してください。"); }
+  const data=await res.json().catch(()=>null);
+  if(!res.ok) throw new Error((data && data.error && data.error.message)||("APIエラー ("+res.status+")"));
+  let t=((data && data.content)||[]).filter(b=>b.type==="text").map(b=>b.text).join("").trim();
+  t=t.replace(/^```[a-z]*\n?/i,"").replace(/\n?```$/,"").trim();
+  if(t && t!=="[NONE]") s.text+=(s.text?"\n":"")+t;
+}
+
+// ---------- views ----------
+function show(id){ document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on",v.id===id)); }
+function route(){
+  const h=location.hash;
+  if(h==="#doc" && current){ show("v-result"); if(!scan) stopCamera(); }
+  else if(h==="#library"){ renderLibrary(); show("v-library"); if(!scan) stopCamera(); }
+  else { show("v-scan"); if(!document.hidden) startCamera(); }
+}
+function go(h){ if(location.hash===h) route(); else location.hash=h; }
+function titleOf(d){ const l=(d.text.split("\n").find(x=>norm(x).replace(/-/g,""))||"無題").replace(/[|#*]/g," ").replace(/\s+/g," ").trim(); return l.length>32?l.slice(0,32)+"…":l; }
+function fmtDate(t){ const d=new Date(t), p=n=>String(n).padStart(2,"0"); return d.getFullYear()+"/"+p(d.getMonth()+1)+"/"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes()); }
+function metaOf(d){ return fmtDate(d.at)+"　"+d.text.replace(/\s/g,"").length.toLocaleString()+"文字　"+(d.engine==="api"?"高精度":"端末内OCR"); }
+
+function openDoc(id){
+  current=docs.find(d=>d.id===id)||null; if(!current) return;
+  setEditing(false); renderDoc(); go("#doc");
+  $("#resScroll").scrollTop=0;
+}
+function renderDoc(){
+  $("#resTitle").textContent=titleOf(current);
+  $("#resMeta").textContent=metaOf(current);
+  $("#formatted").innerHTML=parseBlocks(current.text).map(b=>{
+    if(b.type==="table"){
+      const cols=Math.max(...b.rows.map(r=>r.length));
+      return '<div class="tw"><table>'+b.rows.map((r,ri)=>"<tr>"+Array.from({length:cols},(_,ci)=>(ri===0?"<th>":"<td>")+esc(r[ci]||"")+(ri===0?"</th>":"</td>")).join("")+"</tr>").join("")+"</table></div>";
+    }
+    return '<p class="t">'+esc(b.text)+"</p>";
+  }).join("");
+}
+let editing=false, saveTimer=0;
+function setEditing(on){
+  editing=on;
+  $("#editor").hidden=!on; $("#formatted").hidden=on;
+  $("#editBtn").textContent=on?"完了":"編集";
+  if(on && current) $("#editor").value=current.text;
+  if(!on && current) renderDoc();
+}
+$("#editBtn").onclick=()=>setEditing(!editing);
+$("#editor").oninput=()=>{ if(!current) return; current.text=$("#editor").value; clearTimeout(saveTimer); saveTimer=setTimeout(saveDocs,400); };
+
+// One tap: copy everything. Tables go to the clipboard as real tables (HTML) plus tab-separated text.
+async function copyAll(){
+  if(!current) return;
+  const blocks=parseBlocks(current.text), plain=blocksToPlain(blocks), hasTable=blocks.some(b=>b.type==="table");
+  let ok=false;
+  try{
+    if(hasTable && navigator.clipboard && window.ClipboardItem){
+      await navigator.clipboard.write([new ClipboardItem({"text/plain":new Blob([plain],{type:"text/plain"}),"text/html":new Blob([blocksToHtml(blocks)],{type:"text/html"})})]);
+    } else await navigator.clipboard.writeText(plain);
+    ok=true;
+  }catch(e){
+    try{
+      const ta=document.createElement("textarea"); ta.value=plain; ta.style.cssText="position:fixed;left:-9999px;top:0";
+      document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0,plain.length); ok=document.execCommand("copy"); ta.remove();
+    }catch(e2){}
+  }
+  const b=$("#copyBtn");
+  if(ok){ b.textContent="コピーしました"; setTimeout(()=>{ b.textContent="全文をコピー"; },1600); }
+  else toast("コピーできませんでした。「編集」から全選択してコピーしてください。");
+}
+$("#copyBtn").onclick=copyAll;
+
+let delArmed=0;
+$("#delBtn").onclick=()=>{
+  if(!current) return;
+  const b=$("#delBtn");
+  if(Date.now()-delArmed<3000){
+    docs=docs.filter(d=>d.id!==current.id); saveDocs(); current=null; delArmed=0; b.textContent="削除"; go("#library");
+  } else { delArmed=Date.now(); b.textContent="もう一度で削除"; setTimeout(()=>{ if(Date.now()-delArmed>=2900) b.textContent="削除"; },3000); }
+};
+
+function renderLibrary(){
+  $("#libMeta").textContent=docs.length+"件";
+  const list=$("#list");
+  if(!docs.length){ list.innerHTML='<p class="empty">保存されたスキャンはまだありません。スキャンを終了すると、抽出した文章がここに保存されます。</p>'; return; }
+  list.innerHTML=docs.map(d=>'<button class="item" type="button" data-id="'+esc(d.id)+'"><b>'+esc(titleOf(d))+"</b><small>"+esc(metaOf(d))+"</small></button>").join("");
+}
+$("#list").onclick=e=>{ const b=e.target.closest(".item"); if(b) openDoc(b.dataset.id); };
+
+// ---------- settings ----------
+function setChip(cls,text){ const c=$("#chip"); c.classList.remove("ready","busy"); if(cls) c.classList.add(cls); $("#chipText").textContent=text; }
+function refreshChip(){
+  if(settings.engine==="api") setChip(settings.apiKey?"ready":"busy",settings.apiKey?"高精度（API）":"APIキー未設定");
+  else if(!workerP) setChip("","端末内OCR");
+  else workerP.then(()=>{ if(settings.engine==="device") setChip("ready","端末内OCR"); },()=>{});
+}
+function refreshSheet(){
+  document.querySelectorAll(".seg button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.engine===settings.engine)));
+  $("#apiFields").hidden=settings.engine!=="api";
+  $("#engineNote").textContent=settings.engine==="api"
+    ?"撮影したフレームをAnthropic APIへ送り、文章と表を高精度に書き起こします。表は枠組みごと再現します。APIの利用料がかかります。キーはこの端末内にだけ保存されます。"
+    :"通信せずに端末内で読み取ります（初回のみ辞書をダウンロード）。無料で使えますが、精度は高精度モードに劣り、表は簡易的な再現になります。";
+  $("#apiKey").value=settings.apiKey; $("#apiModel").value=settings.model;
+}
+function openSheet(){ if(scan) return; refreshSheet(); $("#sheet").classList.add("on"); }
+function closeSheet(){ $("#sheet").classList.remove("on"); refreshChip(); if(settings.engine==="device") getWorker().catch(()=>{}); }
+document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{ settings.engine=b.dataset.engine; saveSettings(); refreshSheet(); });
+$("#apiKey").oninput=e=>{ settings.apiKey=e.target.value.trim(); saveSettings(); };
+$("#apiModel").oninput=e=>{ settings.model=e.target.value.trim(); saveSettings(); };
+$("#sheetClose").onclick=closeSheet;
+$("#sheet").onclick=e=>{ if(e.target.id==="sheet") closeSheet(); };
+$("#chip").onclick=openSheet; $("#toSettings").onclick=openSheet;
+
+// ---------- wiring ----------
+$("#shutter").onclick=()=>{ if(scan && scan.active) stopScan(); else if(!scan) startScan(); };
+$("#toLibrary").onclick=()=>{ if(!scan) go("#library"); };
+$("#resBack").onclick=()=>{ setEditing(false); go("#library"); };
+$("#libBack").onclick=()=>go("");
+$("#camRetry").onclick=startCamera;
+window.addEventListener("hashchange",route);
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){ if(scan && scan.active) stopScan(); else if(!scan) stopCamera(); }
+  else route();
+});
+if(location.hash==="#doc") history.replaceState(null,"",location.pathname+location.search);
+refreshChip(); route();
+if(settings.engine==="device") getWorker().catch(()=>{});
+if("serviceWorker" in navigator && location.protocol==="https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>
